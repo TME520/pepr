@@ -1,0 +1,314 @@
+#!/bin/bash
+
+# AUTHOR: sylvain.terret@auspost.com.au
+# TAB = 4 SPACES
+
+#############
+# FUNCTIONS #
+#############
+
+function version() {
+    logger -i -t $0 'version'
+    echo -e "\npepr v"$VERSION
+    return 0
+}
+
+function syntax() {
+    logger -i -t $0 'syntax'
+    echo -e "\n\npepr v"$VERSION
+    echo -e "\n\n\e[32mSyntax:\e[0m\n\npepr { profile } | { stack } | { stack option } | { stack instanceId1 ... instanceIdn } | { -h | --help } | { -v | --version }"
+    echo -e "\n\e[32mExamples:\e[0m\n"
+    echo -e "\e[32m- List available AWS profiles:\e[0m pepr"
+    echo -e "\e[32m- List all the stacks of a profile:\e[0m pepr ap-test"
+    echo -e "\e[32m- Look for a stack name:\e[0m pepr monitor"
+    echo -e "\e[32m- List the instances and Tiers of a stack:\e[0m pepr cssoapi-dev-01"
+    echo -e "\e[32m- Connect to one instance:\e[0m pepr cssoapi-app-ptest-02 i-12345678"
+    echo -e "\e[32m- Connect to two or more instance:\e[0m pepr watchlist-api-stest-01 i-12345678 i-98765432"
+    echo -e "\e[32m- Connect to all instances of stack aem-stest-01:\e[0m pepr ap-test aem-stest-01 !"
+    echo -e "\e[32m- Connect to any instance of stack aem-stest-01:\e[0m pepr ap-test aem-stest-01 ~"
+    return 0
+}
+
+function queryStacksList() {
+    logger -i -t $0 'queryStacksList'
+    grep $CURSTACK $STACKSLIST > /dev/null
+    if [ $? -eq 0 ] ; then
+        # Stack name found in cache
+        echo -e "\n- Stack name found in cache."
+        return 0
+    else
+        # Stack name NOT found in cache
+        echo -e "\n- Stack name NOT found in cache."
+        genStacksList
+        return 1
+    fi
+}
+
+function invalidateStacksList() {
+    logger -i -t $0 'invalidateStacksList'
+    sed "/$2/d" $STACKSLIST > $STACKSLIST".temp"
+    mv $STACKSLIST".temp" $STACKSLIST
+    rm -f $INSTANCESLIST $TIERSLIST
+    echo -e "\e[31m[ERROR]\e[0m Outdated cache for stack: "$2" Stopping."
+    exit 1
+}
+
+function checkAWSProfile() {
+    logger -i -t $0 'checkAWSProfile'
+    if [ -f $AWSPROFILES ] ; then
+        grep -w $1 $AWSPROFILES > /dev/null
+        if [ $? -eq 0 ] ; then
+            return 0
+        fi
+    fi
+    echo -e "\e[34m[INFO]\e[0m AWS profile "$1" not found."
+    logger -i -t $0 '[INFO] AWS profile '$1' not found.'
+    return 1
+}
+
+function genAWSProfilesList() {
+    logger -i -t $0 'genAWSProfilesList'
+    if [ -f $AWSPROFILES ] ; then
+        grep 'profile' $AWSPROFILES | awk '{print $2}' | sed 's/]//' > $AWSPROFILESLIST
+    else
+        echo -e "\e[31m[ERROR]\e[0m Failed to list AWS profiles ("$AWSPROFILES")."
+	logger -i -t $0 "Failed to list AWS profiles ("$AWSPROFILES")."
+	return 1
+    fi
+    return 0
+}
+
+function dispAWSProfilesList() {
+    logger -i -t $0 'dispAWSProfilesList'
+    echo -e "- Available AWS profiles:\n" && cat $AWSPROFILESLIST
+    return 0
+}
+
+function genStacksList() {
+    logger -i -t $0 'genStacksList'
+    aws --profile $AWSENV --output text ec2 describe-instances --filters "Name=instance-state-code,Values=16" | grep 'aws:cloudformation:stack-name' | awk '{print $3}' | sort -u > $STACKSLIST
+    if [ -s $STACKSLIST ] ; then
+        return 0
+    else
+        echo -e "\e[31m[ERROR]\e[0m Failed to generate stacks cache ("$STACKSLIST"). Stopping."
+        exit 1
+    fi
+}
+
+function dispStacksList() {
+    logger -i -t $0 'dispStacksList'
+    echo -e "\n- Stacks in "$AWSENV" ("$(wc -l $STACKSLIST | awk '{print $1}')"):\n" && cat $STACKSLIST
+    return 0
+}
+
+function genInstancesList() {
+    logger -i -t $0 'genInstancesList'
+    if [ -f $STACKSLIST ] ; then
+        grep -E '(^|\s)'$CURSTACK'($|\s)' $STACKSLIST > /dev/null
+        if [ $? -eq 0 ] ; then
+            aws --profile $AWSENV --output text ec2 describe-instances --filters "Name=tag:aws:cloudformation:stack-name,Values=$CURSTACK" "Name=instance-state-code,Values=16" | grep -i 'instances' | awk '{print $8}' > $INSTANCESLIST
+            if [ $(wc -l $INSTANCESLIST | awk '{print $1}') -eq 0 ] ; then
+                invalidateStacksList $CURSTACK
+            fi
+        else
+            echo -e "\n- No perfect match found for your stack.\n"
+            echo -e "- Candidate stacks:\n"
+            aws --profile $AWSENV --output text ec2 describe-instances --filters "Name=tag:aws:cloudformation:stack-name,Values=*$CURSTACK*" "Name=instance-state-code,Values=16" | grep -i 'stack-name' | awk -v awsenv=$AWSENV '{print $3"    Run: pepr "awsenv" "$3}' | sort -u
+            exit 1
+        fi
+    else
+        genStacksList
+        genInstancesList
+    fi
+}
+
+function dispInstancesList() {
+    logger -i -t $0 'dispInstancesList'
+    if [ -f $INSTANCESLIST ] ; then
+        INSTANCESCOUNT=$(wc -l $INSTANCESLIST | awk '{print $1}')
+        > $TIERSLIST
+        while read current_instance
+        do
+            echo -n $current_instance" " >> $TIERSLIST
+            aws --profile $AWSENV --output text ec2 describe-instances --instance-ids "$current_instance" --filters "Name=tag:aws:cloudformation:stack-name,Values=*$CURSTACK*" "Name=instance-state-code,Values=16" | grep -i 'logical-id' | awk '{print $3}' >> $TIERSLIST
+        done < $INSTANCESLIST
+        AVAILABLECHOICES="1 ALL 2 ANY 3 Select"
+        dialog --ok-label "Next" --menu "SSH to..." 20 50 10 $AVAILABLECHOICES 2> $DIALOGCHOICE
+        if [ $? -eq 0 ] ; then
+            if [ $(cat $DIALOGCHOICE) == "1" ] ; then
+                echo "Selected option: "$(cat $DIALOGCHOICE)
+                echo "Connect to all the instances from the stack."
+                CURTIERS="i"
+                connectToTiers
+            elif [ $(cat $DIALOGCHOICE) == "2" ] ; then
+                echo "Selected option: "$(cat $DIALOGCHOICE)
+                echo "Connect to any instance."
+                CURTIERS="i"
+                connectToTiers any
+            elif [ $(cat $DIALOGCHOICE) == "3" ] ; then
+                echo "Selected option: "$(cat $DIALOGCHOICE)
+                echo "Pick the instances you want to SSH into."
+            fi
+        else
+            exit 0
+        fi
+    else
+        genInstancesList
+        dispInstancesList
+    fi
+    return 0
+}
+
+function initScreenConfig() {
+    logger -i -t $0 'initScreenConfig'
+    SCREENCONF=$TEMPDIR"/pepr."$TIMECODE"_"$AWSENV"_"$CURSTACK"_"$CURTIERS".conf"
+    echo "startup_message off" > $SCREENCONF
+    echo "chdir" >> $SCREENCONF
+    echo "autodetach on" >> $SCREENCONF
+    echo "hardstatus alwayslastline" >> $SCREENCONF
+    echo "hardstatus string '%{= kG}[ %{G}%H %{g}][%= %{=kw}%?%-Lw%?%{r}(%{W}%n*%f%t%?(%u)%?%{r})%{w}%?%+Lw%?%?%= %{g}][%{B}%Y-%m-%d %{W}%c %{g}]'" >> $SCREENCONF
+    if [ ! -s $SCREENCONF ] ; then
+        echo -e "\e[31m[ERROR]\e[0m GNU Screen configuration failed ("$SCREENCONF"). Stopping."
+        exit 1
+    fi
+}
+
+function connectToTiers() {
+    logger -i -t $0 'connectToTiers'
+    CNXMODE=$1
+    echo "connectToTiers::CNXMODE="$CNXMODE
+    if [ -f $TIERSLIST ] ; then
+        grep -i $CURTIERS $TIERSLIST
+        if [ $? -eq 0 ] ; then
+            initScreenConfig
+            grep -i $CURTIERS $TIERSLIST | awk -v awsenv=$AWSENV '{print "screen -t "$1" awssh "$1" "awsenv}' > $SCREENCONF".instances.temp"
+            if [ "$CNXMODE" == "any" ] ; then
+                echo "Randomly choosing an instance..."
+                echo $(head -n 1 $SCREENCONF".instances.temp") > $SCREENCONF".instances.temp2"
+                cat $SCREENCONF".instances.temp2" > $SCREENCONF".instances.temp"
+            fi
+            cat $SCREENCONF $SCREENCONF".instances.temp" > $SCREENCONF".assemble.temp"
+            cat $SCREENCONF".assemble.temp" > $SCREENCONF
+            screen -c $SCREENCONF
+            rm -f $SCREENCONF
+            return 0
+        else
+            echo -e "\e[31m[ERROR]\e[0m Invalid tier ("$CURTIERS"). Stopping."
+            exit 1
+        fi
+    fi
+    return 1
+}
+
+function connectToInstances() {
+    logger -i -t $0 'connectToInstances'
+    initScreenConfig
+    cat $INSTANCESLIST | awk -v awsenv=$AWSENV '{print "screen -t "$1" awssh "$1" "awsenv}' >> $SCREENCONF
+    screen -c $SCREENCONF
+}
+
+########
+# MAIN #
+########
+
+logger -i -t $0 '=== Start'
+
+# Variables - DATA
+export VERSION="2.0a"
+export TIMECODE=$(date "+%F@%H:%M:%S")
+export AWSENV="UndefinedEnv"
+export CURSTACK="UndefinedStack"
+export CURTIERS="UndefinedTiers"
+export CURRENTUSER=$(whoami)
+export INSTANCESCOUNT=0
+
+# Variables - PATH
+export TEMPDIR="/tmp/pepr-"$CURRENTUSER
+export STACKSLIST="UndefinedStackList"
+export AWSPROFILES=$HOME"/.aws/config"
+export AWSPROFILESLIST=$TEMPDIR"/pepr.aws_profiles.list"
+export INSTANCESLIST="UndefinedInstancesList"
+export TIERSLIST="UndefinedTiersList"
+export EMPTYATSTARTUPDIR=$TEMPDIR"/deleteme/"
+export SCREENCONF=$EMPTYATSTARTUPDIR"/pepr.default_screen.conf"
+export DIALOGCHOICE=$EMPTYATSTARTUPDIR"/pepr.dialog_choice"
+
+# Temporary files management
+mkdir -p $EMPTYATSTARTUPDIR 
+if [ -d $TEMPDIR ] ; then
+    logger -i -t $0 'Temporary files dir found('$TEMPDIR').'
+    rm -fr $EMPTYATSTARTUPDIR"*"
+else
+    logger -i -t $0 'Unable to create folder '$TEMPDIR
+    echo -e "\e[31m[ERROR]\e[0m Unable to create temporary files folder "$TEMPDIR
+    exit 1
+fi
+
+# Arguments management
+
+case $1 in
+    -h|--help) syntax
+               exit 0
+               ;;
+    -v|--version) version
+                  exit 0
+                  ;;
+esac
+
+# Refresh the list of available AWS profiles at every startup
+genAWSProfilesList
+
+if [ $# -eq 0 ] ; then
+    # 0 args
+    # FORMAT: pepr
+    dispAWSProfilesList
+elif [ $# -eq 1 ] ; then
+    # 1 arg
+    # FORMAT: pepr profile
+    # FORMAT: pepr stack (partial)
+    AWSENV=$1
+    # Parameter 1 is a profile name, list the stacks
+    if checkAWSProfile $AWSENV -eq 0 ; then
+        STACKSLIST=$TEMPDIR"/pepr."$AWSENV".stacks.list"
+        genStacksList
+        dispStacksList
+    else
+        # Parameter 1 is a stack name, list the instances
+        CURSTACK=$1
+        echo -e "\e[34m[INFO]\e[0m Looking for stack "$CURSTACK"..."
+        while read current_profile
+        do
+            AWSENV=$current_profile
+            STACKSLIST=$TEMPDIR"/pepr."$current_profile".stacks.list"
+            if [ ! -f $STACKSLIST ] ; then
+                genStacksList
+            fi
+            grep -E '(^|\s)'$CURSTACK'($|\s)' $STACKSLIST > /dev/null
+            if [ $? -eq 0 ] ; then
+                echo -e "\e[34m[INFO]\e[0m Perfect match found in "$AWSENV
+                INSTANCESLIST=$TEMPDIR"/pepr."$AWSENV"."$CURSTACK".instances.list"
+                aws --profile $AWSENV --output text ec2 describe-instances --filters "Name=tag:aws:cloudformation:stack-name,Values=$CURSTACK" "Name=instance-state-code,Values=16" | grep -i 'instances' | awk '{print $8}' > $INSTANCESLIST
+                if [ $(wc -l $INSTANCESLIST | awk '{print $1}') -eq 0 ] ; then
+                    invalidateStacksList $CURSTACK
+                fi
+                if [ $? -eq 0 ] ; then
+                    TIERSLIST=$TEMPDIR"/pepr."$AWSENV"."$CURSTACK".tiers.list"
+                    dispInstancesList
+                fi
+                exit 0
+            else
+                grep -i $CURSTACK $STACKSLIST > $EMPTYATSTARTUPDIR"/pepr.lookingforstack"
+                if [ $? -eq 0 ] ; then
+                    echo -e "\e[34m[INFO]\e[0m Partial match found in "$AWSENV
+                    cat $EMPTYATSTARTUPDIR"/pepr.lookingforstack" | awk '{print "pepr "$1}'
+                else
+                    echo -e "\e[34m[INFO]\e[0m No match found in "$AWSENV
+                fi
+            fi
+        done < $AWSPROFILESLIST
+    fi
+fi
+
+logger -i -t $0 'Stop ==='
+
+exit 0

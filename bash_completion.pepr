@@ -1,0 +1,20 @@
+_pepr()
+{
+    local cur prev opts
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    opts="-h -v"
+    profiles=$(grep 'profile' $HOME"/.aws/config" | awk '{print $2}' | sed 's/]//')
+
+    if [[ ${cur} == -* ]] ; then
+        COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+        return 0
+    fi
+
+    if [[ ${cur} == ap-* ]] ; then
+        COMPREPLY=( $(compgen -W "${profiles}" -- ${cur}) )
+        return 0
+    fi
+}
+complete -F _pepr pepr

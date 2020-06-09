@@ -1,0 +1,34 @@
+#!/bin/bash
+
+# AUTHOR: andy.zaugg@auspost.com.au
+# TAB = 4 SPACES
+
+if [ "$#" -ne 2 ]; then
+    echo "Not enough arguments"
+    return 1
+fi
+
+USERNAME="ec2-user"
+
+i_id=$1
+if [ ${i_id:0:2} != "i-" ]; then
+    i_id="i-$i_id"
+fi
+
+output=$(aws ec2 describe-instances --instance-ids $i_id --profile $2 --query 'Reservations[0].Instances[0].{RUNNING:State.Name,IPADDR:PrivateIpAddress,KEY:KeyName}' --output json)
+
+running=$(echo $output |grep -c running)
+ip=$(echo $output | awk '{print $5}' | sed -e "s/\"//g" -e "s/,//g")
+key=$(echo $output | awk '{print $7}' | sed -e "s/\"//g" -e "s/,//g")
+
+if [ ! $running -gt 0 ]; then
+    echo "Host $1 not available"
+elif [ -z "$ip" ]; then
+    echo "No Ip address could be found"
+elif [ ! -e ~/.ssh/"$key"* ]; then
+    echo "SSH key %key could not be found in ~/.ssh/"
+else
+    ssh -i ~/.ssh/"$key"*  $USERNAME@$ip
+fi
+
+exit 0
