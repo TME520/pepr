@@ -3,7 +3,7 @@
 ### pepr itself
 ```
 cd /tmp/
-git clone https://terrets@bitbucket.cd.auspost.com.au/scm/st/pepr.git
+git clone https://github.com/TME520/pepr.git
 sudo cp -v ./pepr /usr/local/bin/
 sudo cp -v ./awssh /usr/local/bin/
 cd
@@ -18,7 +18,7 @@ complete -F _pepr pepr
 ```
 cd /tmp/pepr/
 git pull
-rm -f /tmp/pepr-$(whoami)/pepr.ap-prod.stacks.list /tmp/pepr-$(whoami)/pepr.ap-test.stacks.list /tmp/pepr-$(whoami)/pepr.ap-dev.stacks.list
+rm -f /tmp/pepr-$(whoami)/pepr.*.stacks.list
 sudo cp -v ./pepr /usr/local/bin/
 cd
 ```

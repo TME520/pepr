@@ -1,3 +1,0 @@
-dialog --ok-label "Select" --menu "Pick a stack" 20 50 10 1 cssoapi 2 watchlist 3 monitor 4 SaC
-dialog --ok-label "Next" --menu "SSH to..." 20 50 10 1 ALL 2 ANY 3 Select
-dialog --separate-output --ok-label "Connect" --checklist "Select instances" 10 60 3 i-blablablabla slb-prod-1-app on i-bleblebleble cssoapi-app-2 off

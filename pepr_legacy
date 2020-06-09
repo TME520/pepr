@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# AUTHOR: sylvain.terret@auspost.com.au
+# AUTHOR: tme520@gmail.com
 # TAB = 4 SPACES
 
 #############
@@ -19,12 +19,12 @@ function syntax() {
     echo -e "\n\n\e[32mSyntax:\e[0m\n\npepr { profile } | { profile stack } | { profile instanceId } | { profile stack tiers } | {profile stack instanceId } | { -h | --help }"
     echo -e "\n\e[32mExamples:\e[0m\n"
     echo -e "\e[32m- List available AWS profiles:\e[0m pepr"
-    echo -e "\e[32m- List all the stacks of a profile:\e[0m pepr ap-test"
-    echo -e "\e[32m- Connect to one instance:\e[0m pepr ap-dev i-12345678"
-    echo -e "\e[32m- Connect to two or more instance:\e[0m pepr ap-dev i-12345678 i-98765432"
-    echo -e "\e[32m- List the instances and Tiers of a stack:\e[0m pepr ap-dev cssoapi-dev-01"
-    echo -e "\e[32m- Connect to all Publishers of stack aem-stest-01:\e[0m pepr ap-test aem-stest-01 pub"
-    echo -e "\e[32m- Connect to all instances of stack aem-stest-01:\e[0m pepr ap-test aem-stest-01 !"
+    echo -e "\e[32m- List all the stacks of a profile:\e[0m pepr test"
+    echo -e "\e[32m- Connect to one instance:\e[0m pepr dev i-12345678"
+    echo -e "\e[32m- Connect to two or more instance:\e[0m pepr dev i-12345678 i-98765432"
+    echo -e "\e[32m- List the instances and Tiers of a stack:\e[0m pepr dev cssoapi-dev-01"
+    echo -e "\e[32m- Connect to all Publishers of stack aem-stest-01:\e[0m pepr test aem-stest-01 pub"
+    echo -e "\e[32m- Connect to all instances of stack aem-stest-01:\e[0m pepr test aem-stest-01 !"
     return 0
 }
 
